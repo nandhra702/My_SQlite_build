@@ -14,6 +14,22 @@ typedef struct {
   ssize_t input_length;  // - input_length: actual number of characters entered (excluding newline)
 } InputBuffer;
 
+
+typedef enum {
+  META_COMMAND_SUCCESS,
+  META_COMMAND_UNRECOGNIZED_COMMAND
+} MetaCommandResult;
+
+typedef enum { PREPARE_SUCCESS, PREPARE_UNRECOGNIZED_STATEMENT } PrepareResult;
+
+typedef enum { STATEMENT_INSERT, STATEMENT_SELECT } StatementType;
+
+typedef struct {
+  StatementType type;
+} Statement;
+
+
+
 // This function acts like a constructor for InputBuffer.
 // It allocates memory and initializes all fields.
 InputBuffer* new_input_buffer() {
@@ -55,6 +71,44 @@ void close_input_buffer(InputBuffer* input_buffer) {
   free(input_buffer);          // Free the struct itself
 }
 
+MetaCommandResult do_meta_command(InputBuffer* input_buffer) {
+  if (strcmp(input_buffer->buffer, ".exit") == 0) {
+    close_input_buffer(input_buffer);
+    exit(EXIT_SUCCESS);
+  } else {
+    return META_COMMAND_UNRECOGNIZED_COMMAND;
+  }
+}
+
+PrepareResult prepare_statement(InputBuffer* input_buffer,
+                                Statement* statement) {
+  if (strncmp(input_buffer->buffer, "insert", 6) == 0) {
+    statement->type = STATEMENT_INSERT;
+    return PREPARE_SUCCESS;
+  }
+  if (strcmp(input_buffer->buffer, "select") == 0) {
+    statement->type = STATEMENT_SELECT;
+    return PREPARE_SUCCESS;
+  }
+
+  return PREPARE_UNRECOGNIZED_STATEMENT;
+}
+
+void execute_statement(Statement* statement) {
+  switch (statement->type) {
+    case (STATEMENT_INSERT):
+      printf("This is where we would do an insert.\n");
+      break;
+    case (STATEMENT_SELECT):
+      printf("This is where we would do a select.\n");
+      break;
+  }
+}
+
+
+
+
+
                                                     //MAIN FUNCTION LOOP
 
 int main(int argc, char* argv[]) {
@@ -66,12 +120,31 @@ int main(int argc, char* argv[]) {
     print_prompt();             // Show prompt
     read_input(input_buffer);   // Read user input into buffer
 
-    
-    if (strcmp(input_buffer->buffer, ".exit") == 0) {
-      close_input_buffer(input_buffer);  // Free memory before exiting
-      exit(EXIT_SUCCESS);                // Exit cleanly
-    } else {
-      printf("Unrecognized command '%s'.\n", input_buffer->buffer);
+  
+
+   if (input_buffer->buffer[0] == '.') {        //means that this is a meta command thats special to SQLite
+      switch (do_meta_command(input_buffer)) {
+        case (META_COMMAND_SUCCESS):
+          continue; //to skip the execution 
+        case (META_COMMAND_UNRECOGNIZED_COMMAND):
+          printf("Unrecognized command '%s'\n", input_buffer->buffer);
+          continue; 
+      }
     }
-  }
+
+    Statement statement;  //this is a struct to store parsed SQL statements
+
+    // The prepare statement function parses the input SQL string and fills out the statement struct accordingly
+    switch (prepare_statement(input_buffer, &statement)) {
+      case (PREPARE_SUCCESS):
+        break;
+      case (PREPARE_UNRECOGNIZED_STATEMENT):
+        printf("Unrecognized keyword at start of '%s'.\n",
+               input_buffer->buffer);
+        continue; 
+    }
+
+    execute_statement(&statement);
+    printf("Executed.\n");
+ }
 }
