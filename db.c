@@ -3,31 +3,8 @@
 #include <stdlib.h>    
 #include <unistd.h>    
 #include <string.h>    
-
-
-
-
-// This structure holds everything we need to read user input
-typedef struct {
-  char* buffer; // - buffer: pointer to the actual text line entered by the user
-  size_t buffer_length;  // - buffer_length: size of memory allocated for buffer
-  ssize_t input_length;  // - input_length: actual number of characters entered (excluding newline)
-} InputBuffer;
-
-
-typedef enum {
-  META_COMMAND_SUCCESS,
-  META_COMMAND_UNRECOGNIZED_COMMAND
-} MetaCommandResult;
-
-typedef enum { PREPARE_SUCCESS, PREPARE_UNRECOGNIZED_STATEMENT } PrepareResult;
-
-typedef enum { STATEMENT_INSERT, STATEMENT_SELECT } StatementType;
-
-typedef struct {
-  StatementType type;
-} Statement;
-
+#include <stdint.h>
+#include "structs.h"
 
 
 // This function acts like a constructor for InputBuffer.
@@ -40,6 +17,71 @@ InputBuffer* new_input_buffer() {
 
   return input_buffer;
 }
+
+//THIS FUNCTION HELPS US NAVIGATE TO THE EXACT SPOT WHERE WE HAVE TO INSERT THE ROW.
+
+void* row_slot(Table* table, uint32_t row_num) {
+  uint32_t page_num = row_num / ROWS_PER_PAGE;   // Find which drawer
+  void* page = table->pages[page_num];           // Get pointer to that drawer
+  if (page == NULL) {
+    // If drawer is empty, create it
+    page = table->pages[page_num] = malloc(PAGE_SIZE);
+  }
+  uint32_t row_offset = row_num % ROWS_PER_PAGE; // How far into the drawer
+  uint32_t byte_offset = row_offset * ROW_SIZE;  // Convert row index to byte position
+  return page + byte_offset;                     // Return pointer to that spot
+}
+
+
+void print_row(Row* row) {
+  printf("(%d, %s, %s)\n", row->id,     row->username, row->email);
+}
+
+
+void serialize_row(Row* source, void* destination) {
+  memcpy(destination + ID_OFFSET, &(source->id), ID_SIZE);
+  memcpy(destination + USERNAME_OFFSET, &(source->username), USERNAME_SIZE);
+  memcpy(destination + EMAIL_OFFSET, &(source->email), EMAIL_SIZE);
+}
+
+void deserialize_row(void *source, Row* destination) {
+  memcpy(&(destination->id), source + ID_OFFSET, ID_SIZE);
+  memcpy(&(destination->username), source + USERNAME_OFFSET, USERNAME_SIZE);
+  memcpy(&(destination->email), source + EMAIL_OFFSET, EMAIL_SIZE);
+}
+
+
+// Creates a new Table structure in memory and initializes it
+Table* new_table() {
+  // Allocate memory for the Table struct itself
+  Table* table = (Table*)malloc(sizeof(Table));
+
+  // Initialize the number of rows to 0 (empty table)
+  table->num_rows = 0;
+
+  // Initialize all page pointers to NULL (no pages allocated yet)
+  for (uint32_t i = 0; i < TABLE_MAX_PAGES; i++) {
+     table->pages[i] = NULL;
+  }
+
+  // Return the newly created table
+  return table;
+}
+
+
+// Frees all memory used by the table, including each page
+void free_table(Table* table) {
+  // Loop through all pages and free each one if it's been allocated
+  for (int i = 0; table->pages[i]; i++) {
+    free(table->pages[i]);  // Free the memory for this page
+  }
+
+  // Finally, free the memory for the Table struct itself
+  free(table);
+}
+
+
+
 
 
 void print_prompt() { 
@@ -80,12 +122,20 @@ MetaCommandResult do_meta_command(InputBuffer* input_buffer) {
   }
 }
 
-PrepareResult prepare_statement(InputBuffer* input_buffer,
-                                Statement* statement) {
+PrepareResult prepare_statement(InputBuffer* input_buffer,Statement* statement) {
+
   if (strncmp(input_buffer->buffer, "insert", 6) == 0) {
     statement->type = STATEMENT_INSERT;
+    int args_assigned = sscanf(
+        input_buffer->buffer, "insert %d %s %s", &(statement->row_to_insert.id),
+        statement->row_to_insert.username, statement->row_to_insert.email);
+    if (args_assigned < 3) {
+      return PREPARE_SYNTAX_ERROR;
+    }
     return PREPARE_SUCCESS;
   }
+
+
   if (strcmp(input_buffer->buffer, "select") == 0) {
     statement->type = STATEMENT_SELECT;
     return PREPARE_SUCCESS;
@@ -94,16 +144,61 @@ PrepareResult prepare_statement(InputBuffer* input_buffer,
   return PREPARE_UNRECOGNIZED_STATEMENT;
 }
 
-void execute_statement(Statement* statement) {
+
+//////////////////////////////////// FUNCTIONS FOR EXECUTION OF COMMANDS /////////////////////////////////////
+
+// Executes an INSERT statement
+ExecuteResult execute_insert(Statement* statement, Table* table) {
+  // Check if there's space left in the table
+  if (table->num_rows >= TABLE_MAX_ROWS) {
+    return EXECUTE_TABLE_FULL;  // Table is full, return an error result
+  }
+
+  // Get the row data from the statement
+  Row* row_to_insert = &(statement->row_to_insert);
+
+  // Serialize the row into a flat memory format
+  // and store it at the correct memory location for the next row
+  serialize_row(row_to_insert, row_slot(table, table->num_rows));
+
+  // Increment the total row count after a successful insert
+  table->num_rows += 1;
+
+  return EXECUTE_SUCCESS;  // Indicate success
+}
+
+
+// Executes a SELECT statement (prints all rows)
+ExecuteResult execute_select(Statement* statement, Table* table) {
+  Row row;  // Temporary variable to hold each row while we print it
+
+  // Loop through all inserted rows
+  for (uint32_t i = 0; i < table->num_rows; i++) {
+    // Read the serialized row from memory into the `row` variable
+    deserialize_row(row_slot(table, i), &row);
+
+    // Print the contents of the row
+    print_row(&row);
+  }
+
+  return EXECUTE_SUCCESS;  // Indicate success
+}
+
+
+// Chooses which statement to execute: INSERT or SELECT
+ExecuteResult execute_statement(Statement* statement, Table* table) {
   switch (statement->type) {
     case (STATEMENT_INSERT):
-      printf("This is where we would do an insert.\n");
-      break;
+      // If it's an INSERT, call the insert executor
+      return execute_insert(statement, table);
+      
     case (STATEMENT_SELECT):
-      printf("This is where we would do a select.\n");
-      break;
+      // If it's a SELECT, call the select executor
+      return execute_select(statement, table);
   }
 }
+
+
 
 
 
@@ -112,6 +207,10 @@ void execute_statement(Statement* statement) {
                                                     //MAIN FUNCTION LOOP
 
 int main(int argc, char* argv[]) {
+
+  //Firstly initialize a table : 
+  Table* table = new_table();
+
   // Create and initialize a new InputBuffer
   InputBuffer* input_buffer = new_input_buffer();
 
@@ -138,13 +237,26 @@ int main(int argc, char* argv[]) {
     switch (prepare_statement(input_buffer, &statement)) {
       case (PREPARE_SUCCESS):
         break;
+
+      case (PREPARE_SYNTAX_ERROR):
+        printf("Syntax error. Could not parse statement.\n");
+        continue;
+
       case (PREPARE_UNRECOGNIZED_STATEMENT):
         printf("Unrecognized keyword at start of '%s'.\n",
                input_buffer->buffer);
         continue; 
     }
 
-    execute_statement(&statement);
+
+    switch (execute_statement(&statement, table)) {
+      case (EXECUTE_SUCCESS):
+        printf("Executed.\n");
+        break;
+      case (EXECUTE_TABLE_FULL):
+        printf("Error: Table full.\n");
+        break;
+    }
     printf("Executed.\n");
  }
 }
