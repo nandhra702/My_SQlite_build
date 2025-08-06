@@ -29,4 +29,23 @@ We calculate where exactly should the row go inside that table
 void* page = table->pages[page_num];
 uint32_t byte_offset = row_offset * ROW_SIZE;
 
+
+PART 4 – TESTS AND BUGS
+In this part, we use a ruby framework to test out our C code. The tests run on the compiled binary. These include normal as well as edge cases. We write a sample input and a sample output, and the framework creates the tests. The framework we are using is RSpec. 
+-	Why ? yes we are taking up this pain because it helps us. Firstly manual testing is slow, secondly, whenever we do additions to the code, these tests ensure that the new functionality doesn’t interfere with this existing functionality what we tested for.
+-	Rspec allows us to describe tests in plain English (that’s why we are using it), for example :
  
+it 'inserts and retrieves a row' do
+    result = run_script([
+      "insert 1 user1 person1@example.com",
+      "select",
+      ".exit",
+    ])
+    expect(result).to match_array([
+      "db > Executed.",
+      "db > (1, user1, person1@example.com)",
+      "Executed.",
+      "db > ",
+    ])
+
+//SO I NEED TO LEARN HOW THIS TESTING WAS DONE. BUT IT WAS FUN
