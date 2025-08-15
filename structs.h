@@ -12,15 +12,15 @@
 
 typedef struct {
   uint32_t id;
-  char username[COLUMN_USERNAME_SIZE];
-  char email[COLUMN_EMAIL_SIZE];
+  char username[COLUMN_USERNAME_SIZE+1];
+  char email[COLUMN_EMAIL_SIZE+1]; // +1 for null terminator 
 } Row;
 
 typedef enum { STATEMENT_INSERT, STATEMENT_SELECT } StatementType;
 
 typedef enum { EXECUTE_SUCCESS, EXECUTE_TABLE_FULL } ExecuteResult;
 
-typedef enum {PREPARE_SUCCESS, PREPARE_SYNTAX_ERROR, PREPARE_UNRECOGNIZED_STATEMENT } PrepareResult;
+typedef enum {PREPARE_SUCCESS, PREPARE_SYNTAX_ERROR, PREPARE_NEGATIVE_ID,PREPARE_STRING_TOO_LONG,PREPARE_UNRECOGNIZED_STATEMENT } PrepareResult;
 
 typedef enum {
   META_COMMAND_SUCCESS,
@@ -50,10 +50,20 @@ const uint32_t PAGE_SIZE = 4096; // each page is 4KB
 const uint32_t ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE; // how many rows can fit in 1 page
 const uint32_t TABLE_MAX_ROWS = ROWS_PER_PAGE * TABLE_MAX_PAGES; // max total rows = rows per page * number of pages
 
+
+typedef struct {
+  int file_descriptor;
+  uint32_t file_length;
+  void* pages[TABLE_MAX_PAGES]; // array of page pointers, each one is 4KB
+} Pager;
+
+
 typedef struct {
   uint32_t num_rows;               // keeps track of how many rows are currently stored
-  void* pages[TABLE_MAX_PAGES];    // array of page pointers, each one is 4KB
+  Pager* pager; // pointer to the Pager structure that manages the file 
 } Table;
+
+
 
 
 
