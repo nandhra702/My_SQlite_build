@@ -83,4 +83,25 @@ describe 'database' do
       "ghost_protocol > ",
     ])
   end
+
+  it 'keeps data after closing connection' do
+  result1 = run_script([
+    "insert 1 user1 person1@example.com",
+    ".exit",
+  ])
+  expect(result1).to match_array([
+    "ghost_protocol > Executed.",
+    "ghost_protocol > ",
+  ])
+  result2 = run_script([
+    "select",
+    ".exit",
+  ])  
+  expect(result2).to match_array([
+    "ghost_protocol > (1, user1, person1@example.com)",
+    "Executed.",
+    "ghost_protocol > ",
+  ])
+end
+
 end
